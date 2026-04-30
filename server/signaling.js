@@ -1,27 +1,16 @@
 /**
  * Q-IDChain — WebSocket Signaling & Relay Server
- *
- * Responsibilities:
- *   1. WebSocket signaling for P2P key exchange
- *   2. Message relay (end-to-end encrypted — server NEVER sees plaintext)
- *   3. Presence / online status
- *   4. Group message fanout (encrypted payloads only)
- *
- * The server handles ONLY encrypted blobs. All encryption/decryption
- * happens on the client. The server cannot read any message content.
- *
- * Run: node server/signaling.js
  */
 
 require('dotenv').config()
-const express  = require('express')
-const http     = require('http')
+const express = require('express')
+const http = require('http')
 const { Server } = require('socket.io')
-const cors     = require('cors')
+const cors = require('cors')
 
-const app    = express()
+const app = express()
 const server = http.createServer(app)
-const PORT   = process.env.PORT || 3001
+const PORT = process.env.PORT || 3001
 const CLIENT = process.env.CLIENT_URL || 'http://localhost:5173'
 
 const io = new Server(server, {
@@ -32,10 +21,9 @@ const io = new Server(server, {
 app.use(cors({ origin: CLIENT }))
 app.use(express.json())
 
-// ── In-memory state (use Redis in production) ─────────────────────────────────
-const users      = new Map()  // did → { socketId, alias, publicKey, online, lastSeen }
-const rooms      = new Map()  // groupId → Set<did>
-const msgHistory = new Map()  // conversationKey → [encryptedMsg, ...] (last 200)
+const users = new Map()
+const rooms = new Map()
+const msgHistory = new Map()
 
 function convoKey(did1, did2) {
   return [did1, did2].sort().join('::')
@@ -45,97 +33,164 @@ function storeMessage(key, msg) {
   if (!msgHistory.has(key)) msgHistory.set(key, [])
   const hist = msgHistory.get(key)
   hist.push(msg)
-  if (hist.length > 200) hist.shift() // keep last 200
+  if (hist.length > 200) hist.shift()
 }
 
-// ── Socket.IO ─────────────────────────────────────────────────────────────────
 io.on('connection', socket => {
   let myDID = null
 
-  // ── Register identity ────────────────────────────────────────────────────────
   socket.on('register', ({ did, alias, publicKey, kyberPublicKey }) => {
-    myDID = did
-    users.set(did, { socketId: socket.id, alias, publicKey, kyberPublicKey, online: true, lastSeen: Date.now() })
-    socket.join(did) // personal room
-    io.emit('user:online', { did, alias, online: true })
-    console.log(`[+] ${alias} (${did.slice(0, 20)}...) connected`)
+    if (!did) return
 
-    // Send pending offline messages
-    // (in production: fetch from DB; here we rely on conversation history)
+    myDID = did
+    users.set(did, {
+      socketId: socket.id,
+      alias,
+      publicKey,
+      kyberPublicKey,
+      online: true,
+      lastSeen: Date.now(),
+    })
+
+    socket.join(did)
+    io.emit('user:online', { did, alias, online: true })
+    console.log(`[+] ${alias || did} (${did.slice(0, 20)}...) connected`)
   })
 
-  // ── Send direct message (encrypted blob) ─────────────────────────────────────
-  socket.on('message:send', (payload) => {
-    const { to, from, encrypted, nonce, ephemeralPK, kyberCapsule, cid, timestamp, id, messageType } = payload
+  socket.on('message:send', payload => {
+    const { to, from, encrypted, nonce, ephemeralPK, kyberCapsule, cid, timestamp, id, messageType } = payload || {}
     if (!to || !from) return
 
-    const msg = { id, to, from, encrypted, nonce, ephemeralPK, kyberCapsule, cid, timestamp, messageType: messageType || 'text' }
+    const msg = {
+      id,
+      to,
+      from,
+      encrypted,
+      nonce,
+      ephemeralPK,
+      kyberCapsule,
+      cid,
+      timestamp,
+      messageType: messageType || 'text',
+    }
 
-    // Store encrypted message for offline delivery
     storeMessage(convoKey(from, to), msg)
-
-    // Deliver to recipient (if online)
     io.to(to).emit('message:receive', msg)
-
-    // Echo delivery receipt to sender
     socket.emit('message:delivered', { id, to, timestamp: Date.now() })
   })
 
-  // ── Message read receipt ──────────────────────────────────────────────────────
+  // NEW: direct file share to one recipient
+  socket.on('file:share', payload => {
+    const {
+      id,
+      toDid,
+      fromDid,
+      fromAlias,
+      name,
+      size,
+      type,
+      cid,
+      algorithm,
+      encryptedFEK,
+      iv,
+      uploadedAt,
+    } = payload || {}
+
+    if (!toDid || !fromDid || !cid) {
+      socket.emit('file:error', { message: 'Invalid file payload' })
+      return
+    }
+
+    const fileMsg = {
+      id,
+      toDid,
+      fromDid,
+      fromAlias,
+      name,
+      size,
+      type,
+      cid,
+      algorithm,
+      encryptedFEK,
+      iv,
+      uploadedAt: uploadedAt || Date.now(),
+      status: 'received',
+    }
+
+    storeMessage(convoKey(fromDid, toDid), {
+      id,
+      to: toDid,
+      from: fromDid,
+      cid,
+      timestamp: uploadedAt || Date.now(),
+      messageType: 'file',
+      file: fileMsg,
+    })
+
+    io.to(toDid).emit('file:received', fileMsg)
+    socket.emit('file:delivered', { id, toDid, timestamp: Date.now() })
+  })
+
   socket.on('message:read', ({ msgId, from, to }) => {
+    if (!from || !to) return
     io.to(from).emit('message:read_receipt', { msgId, by: to, at: Date.now() })
   })
 
-  // ── Typing indicator ──────────────────────────────────────────────────────────
-  socket.on('typing:start', ({ to, from }) => { io.to(to).emit('typing:start', { from }) })
-  socket.on('typing:stop',  ({ to, from }) => { io.to(to).emit('typing:stop',  { from }) })
+  socket.on('typing:start', ({ to, from }) => {
+    if (to && from) io.to(to).emit('typing:start', { from })
+  })
 
-  // ── Group events ──────────────────────────────────────────────────────────────
+  socket.on('typing:stop', ({ to, from }) => {
+    if (to && from) io.to(to).emit('typing:stop', { from })
+  })
+
   socket.on('group:join', ({ groupId, did }) => {
+    if (!groupId || !did) return
     socket.join(`group:${groupId}`)
     if (!rooms.has(groupId)) rooms.set(groupId, new Set())
     rooms.get(groupId).add(did)
   })
 
-  socket.on('group:message', (payload) => {
-    const { groupId } = payload
+  socket.on('group:message', payload => {
+    const { groupId, id, from } = payload || {}
+    if (!groupId || !from) return
+
     storeMessage(`group:${groupId}`, payload)
     socket.to(`group:${groupId}`).emit('group:message', payload)
-    socket.emit('message:delivered', { id: payload.id, groupId, timestamp: Date.now() })
+    socket.emit('message:delivered', { id, groupId, timestamp: Date.now() })
   })
 
   socket.on('group:leave', ({ groupId, did }) => {
+    if (!groupId || !did) return
     socket.leave(`group:${groupId}`)
     rooms.get(groupId)?.delete(did)
   })
 
-  // ── Key exchange (public key lookup) ──────────────────────────────────────────
   socket.on('key:lookup', ({ did }, cb) => {
     const user = users.get(did)
-    if (user) cb({ found: true, publicKey: user.publicKey, kyberPublicKey: user.kyberPublicKey, alias: user.alias })
-    else      cb({ found: false })
+    if (user) cb?.({ found: true, publicKey: user.publicKey, kyberPublicKey: user.kyberPublicKey, alias: user.alias })
+    else cb?.({ found: false })
   })
 
-  // ── Fetch message history ─────────────────────────────────────────────────────
   socket.on('history:fetch', ({ with: peerDID, groupId }, cb) => {
-    const key  = groupId ? `group:${groupId}` : convoKey(myDID, peerDID)
+    const key = groupId ? `group:${groupId}` : convoKey(myDID, peerDID)
     const msgs = msgHistory.get(key) || []
-    cb({ messages: msgs.slice(-50) }) // last 50
+    cb?.({ messages: msgs.slice(-50) })
   })
 
-  // ── Online roster ─────────────────────────────────────────────────────────────
-  socket.on('users:online', (cb) => {
+  socket.on('users:online', cb => {
     const online = []
-    users.forEach((u, did) => { if (u.online) online.push({ did, alias: u.alias, publicKey: u.publicKey }) })
-    cb(online)
+    users.forEach((u, did) => {
+      if (u.online) online.push({ did, alias: u.alias, publicKey: u.publicKey })
+    })
+    cb?.(online)
   })
 
-  // ── Disconnect ────────────────────────────────────────────────────────────────
   socket.on('disconnect', () => {
     if (myDID) {
       const user = users.get(myDID)
       if (user) {
-        user.online   = false
+        user.online = false
         user.lastSeen = Date.now()
         users.set(myDID, user)
         io.emit('user:online', { did: myDID, online: false, lastSeen: user.lastSeen })
@@ -145,9 +200,8 @@ io.on('connection', socket => {
   })
 })
 
-// ── REST endpoints ────────────────────────────────────────────────────────────
 app.get('/health', (_, res) => res.json({ ok: true, users: users.size, service: 'q-idchain-signaling' }))
-app.get('/users',  (_, res) => {
+app.get('/users', (_, res) => {
   const list = []
   users.forEach((u, did) => list.push({ did, alias: u.alias, online: u.online, lastSeen: u.lastSeen }))
   res.json(list)
