@@ -269,10 +269,10 @@ export default function Files() {
                       {formatSize(f.size)} · {f.algorithm} · IPFS: {f.cid.slice(0, 16)}…
                     </div>
                     <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: 2 }}>
-                      {f.fromAlias ? (
-                        <>From <strong style={{ color: 'var(--cyan)' }}>{f.fromAlias}</strong></>
-                      ) : (
+                      {f.fromDid === identity.did ? (
                         <>Shared with <strong style={{ color: 'var(--cyan)' }}>{f.sharedWithAlias}</strong></>
+                      ) : (
+                        <>From <strong style={{ color: 'var(--cyan)' }}>{f.fromAlias}</strong></>
                       )}{' '}
                       · {new Date(f.uploadedAt).toLocaleDateString()}
                     </div>
