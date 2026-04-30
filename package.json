@@ -1,0 +1,31 @@
+{
+  "name": "q-idchain",
+  "version": "1.0.0",
+  "description": "Q-IDChain: Quantum-Encrypted Decentralized Identity & Secure P2P Messaging",
+  "type": "module",
+  "scripts": {
+    "dev": "vite --port 5173",
+    "build": "vite build",
+    "preview": "vite preview",
+    "server": "node server/signaling.js",
+    "start": "concurrently \"npm run dev\" \"npm run server\""
+  },
+  "dependencies": {
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "react-router-dom": "^6.22.0",
+    "tweetnacl": "^1.0.3",
+    "tweetnacl-util": "^0.15.1",
+    "zustand": "^4.5.2",
+    "qrcode": "^1.5.3",
+    "socket.io-client": "^4.7.4",
+    "recharts": "^2.12.2",
+    "date-fns": "^3.3.1",
+    "lucide-react": "^0.383.0"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^4.2.1",
+    "vite": "^5.1.4",
+    "concurrently": "^8.2.2"
+  }
+}
