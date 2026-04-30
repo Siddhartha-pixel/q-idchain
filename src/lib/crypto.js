@@ -63,7 +63,7 @@ export function hybridEncrypt(message, recipientClassicalPKb64, recipientKyberPK
   const recipientPK = decodeBase64(recipientClassicalPKb64)
   const ephemeral   = nacl.box.keyPair()
   const nonce       = randomBytes(nacl.box.nonceLength)
-  const msgBytes    = typeof message === 'string' ? encodeUTF8(message) : message
+  const msgBytes    = typeof message === 'string' ? decodeUTF8(message) : message
 
   const ciphertext  = nacl.box(msgBytes, nonce, recipientPK, ephemeral.secretKey)
 
@@ -93,15 +93,16 @@ export function hybridDecrypt(payload, recipientClassicalSKb64) {
 
   const plain = nacl.box.open(ct, n, pk, sk)
   if (!plain) throw new Error('Decryption failed — wrong key or tampered message')
-  return decodeUTF8(plain)
+  return encodeUTF8(plain)
 }
 
 // ─── Symmetric (group session key) ───────────────────────────────────────────
 
 export function symmetricEncrypt(message, sessionKeyB64) {
-  const key   = decodeBase64(sessionKeyB64)
-  const nonce = randomBytes(nacl.secretbox.nonceLength)
-  const ct    = nacl.secretbox(encodeUTF8(message), nonce, key)
+  const key      = decodeBase64(sessionKeyB64)
+  const nonce    = randomBytes(nacl.secretbox.nonceLength)
+  const msgBytes = typeof message === 'string' ? decodeUTF8(message) : message
+  const ct       = nacl.secretbox(msgBytes, nonce, key)
   return { ciphertext: encodeBase64(ct), nonce: encodeBase64(nonce) }
 }
 
@@ -111,14 +112,14 @@ export function symmetricDecrypt(payload, sessionKeyB64) {
   const nonce = decodeBase64(payload.nonce)
   const plain = nacl.secretbox.open(ct, nonce, key)
   if (!plain) throw new Error('Symmetric decryption failed')
-  return decodeUTF8(plain)
+  return encodeUTF8(plain)
 }
 
 // ─── Ed25519 Signatures ───────────────────────────────────────────────────────
 
 export function signMessage(message, signingSecretKeyB64) {
   const sk     = decodeBase64(signingSecretKeyB64)
-  const bytes  = encodeUTF8(message)
+  const bytes  = typeof message === 'string' ? decodeUTF8(message) : message
   const signed = nacl.sign(bytes, sk)
   return encodeBase64(signed)
 }
@@ -128,7 +129,7 @@ export function verifySignature(signedB64, signingPublicKeyB64) {
   const signed = decodeBase64(signedB64)
   const opened = nacl.sign.open(signed, pk)
   if (!opened) throw new Error('Signature verification failed')
-  return decodeUTF8(opened)
+  return encodeUTF8(opened)
 }
 
 // ─── Key Derivation (PBKDF2-SHA256 via WebCrypto) ────────────────────────────
@@ -148,7 +149,7 @@ export function generateSessionKey() {
 }
 
 export function hashMessage(msg) {
-  return encodeBase64(nacl.hash(encodeUTF8(msg)))
+  return encodeBase64(nacl.hash(decodeUTF8(msg)))
 }
 
 export function truncateKey(k, n = 16) {
