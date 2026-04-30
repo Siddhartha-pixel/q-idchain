@@ -7,7 +7,6 @@ import { truncateDID } from '../lib/identity.js'
 const NAV = [
   { to: '/app',           label: 'Dashboard',  icon: '⬡', end: true },
   { to: '/app/messages',  label: 'Messages',   icon: '◈' },
-  { to: '/app/groups',    label: 'Groups',     icon: '◎' },
   { to: '/app/files',     label: 'Files',      icon: '◰' },
   { to: '/app/wallet',    label: 'Identity',   icon: '◉' },
   { to: '/app/security',  label: 'Security',   icon: '⬔' },

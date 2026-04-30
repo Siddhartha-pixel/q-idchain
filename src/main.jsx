@@ -7,7 +7,7 @@ import Auth       from './pages/Auth.jsx'
 import Layout     from './components/Layout.jsx'
 import Dashboard  from './pages/Dashboard.jsx'
 import Messages   from './pages/Messages.jsx'
-import Groups     from './pages/Groups.jsx'
+// removed import Groups
 import Files      from './pages/Files.jsx'
 import Wallet     from './pages/Wallet.jsx'
 import Security   from './pages/Security.jsx'
@@ -20,6 +20,7 @@ function Guard({ children }) {
   return isAuthed ? children : <Navigate to="/auth" replace />
 }
 
+
 export default function App() {
   return (
     <BrowserRouter>
@@ -29,7 +30,6 @@ export default function App() {
         <Route path="/app" element={<Guard><Layout /></Guard>}>
           <Route index           element={<Dashboard />} />
           <Route path="messages" element={<Messages />} />
-          <Route path="groups"   element={<Groups />} />
           <Route path="files"    element={<Files />} />
           <Route path="wallet"   element={<Wallet />} />
           <Route path="security" element={<Security />} />
